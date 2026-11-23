@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>qqmp3-floating-lyrics 交互预览 Demo v4</title>
+<style>
+  :root {
+    --bg-surface: radial-gradient(circle at 20% 0%, #1c2538 0%, #0e131d 100%);
+    --accent: #56f0ff;
+    --accent-soft: rgba(86, 240, 255, 0.16);
+    --accent-glow: rgba(86, 240, 255, 0.28);
+    --text-main: #f8fafc;
+    --text-sub: rgba(248, 250, 252, 0.44);
+    --text-muted: rgba(248, 250, 252, 0.22);
+    --border-hairline: rgba(255, 255, 255, 0.1);
+    --drawer-bg: rgba(14, 19, 29, 0.92);
+    --pill-bg: rgba(15, 20, 31, 0.58);
+    --cover-opacity: 0.34;
+    --cover-width: 240px;
+    --font-size: 23px;
+    --row-gap: 10px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: #eef2f6;
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: #1e293b;
+  }
+
+  .guide {
+    max-width: 680px;
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  .guide h2 { font-size: 18px; font-weight: 700; margin-bottom: 6px; }
+  .guide p { font-size: 13px; color: #64748b; line-height: 1.6; }
+
+  .pip-window {
+    position: relative;
+    width: 640px;
+    height: 176px;
+    min-width: 340px;
+    min-height: 58px;
+    max-width: 94vw;
+    max-height: 440px;
+    resize: both;
+    overflow: hidden;
+    border-radius: 14px;
+    background: var(--bg-surface);
+    color: var(--text-main);
+    box-shadow: 0 20px 44px rgba(15, 23, 42, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.14);
+    border: 1px solid var(--border-hairline);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    padding: 12px 24px;
+    user-select: none;
+    transition: background 0.3s ease, color 0.3s ease;
+  }
+
+  /* 夸大右半侧范围 + 柔和渐入遮罩（无额外遮罩层） */
+  .left-cover-bg {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: var(--cover-width);
+    overflow: hidden;
+    opacity: var(--cover-opacity);
+    pointer-events: none;
+    z-index: 1;
+    -webkit-mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.88) 45%,
+      rgba(0, 0, 0, 0.42) 78%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    mask-image: linear-gradient(
+      to right,
+      rgba(0, 0, 0, 1) 0%,
+      rgba(0, 0, 0, 0.88) 45%,
+      rgba(0, 0, 0, 0.42) 78%,
+      rgba(0, 0, 0, 0) 100%
+    );
+    transition: opacity 0.25s ease, width 0.25s ease;
+  }
+  .left-cover-bg img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    filter: saturate(1.08);
+  }
+  .pip-window.compact-single .left-cover-bg {
+    width: calc(var(--cover-width) * 0.72);
+  }
+
+  .hover-bar {
+    position: absolute;
+    top: 8px;
+    left: 12px;
+    right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    opacity: 0;
+    transform: translateY(-4px);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    pointer-events: none;
+    z-index: 20;
+  }
+  .pip-window:hover .hover-bar,
+  .pip-window.drawer-open .hover-bar {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+  }
+
+  .pill-group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--pill-bg);
+    border: 1px solid var(--border-hairline);
+    border-radius: 999px;
+    padding: 2px 7px;
+  }
+
+  .icon-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-main);
+    font-size: 12px;
+    padding: 3px 7px;
+    border-radius: 999px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: background 0.15s ease, color 0.15s ease;
+  }
+  .icon-btn:hover { background: rgba(255, 255, 255, 0.14); }
+  .icon-btn.active { color: var(--accent); background: var(--accent-soft); }
+
+  .lyric-stage-wrap {
+    position: relative;
+    z-index: 5;
+    width: 100%;
+    padding-left: 36px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    overflow: hidden;
+    transition: padding-left 0.25s ease;
+  }
+  .pip-window.compact-single .lyric-stage-wrap {
+    padding-left: 56px;
+  }
+
+  .meta-line {
+    font-size: 11px;
+    color: var(--text-sub);
+    margin-bottom: 6px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pip-window.compact-single .meta-line { display: none; }
+
+  .stage {
+    display: flex;
+    flex-direction: column;
+    gap: var(--row-gap);
+    width: 100%;
+    transition: gap 0.2s ease;
+  }
+
+  .row {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.35;
+    transition: opacity 0.26s ease, transform 0.26s cubic-bezier(0.22, 1, 0.36, 1), color 0.2s ease;
+  }
+  .row.no-anim { transition: none !important; }
+
+  .row.sub {
+    font-size: calc(var(--font-size) * 0.56);
+    color: var(--text-sub);
+    font-weight: 400;
+  }
+  .row.far {
+    font-size: calc(var(--font-size) * 0.5);
+    color: var(--text-muted);
+  }
+  .row.current {
+    font-size: var(--font-size);
+    font-weight: 800;
+    color: var(--accent);
+  }
+  .row.current.enter-anim {
+    opacity: 0.25;
+    transform: translateY(7px);
+  }
+
+  .pip-window[data-skin="clean"] .lyric-stage-wrap { align-items: flex-start; text-align: left; }
+  .pip-window[data-skin="clean"] .row.current {
+    color: var(--text-main);
+    text-shadow: 0 2px 12px rgba(0, 0, 0, 0.28);
+  }
+
+  .pip-window[data-skin="lyricify"] .lyric-stage-wrap { align-items: center; text-align: center; padding-left: 0; }
+  .pip-window[data-skin="lyricify"] .row.current {
+    color: var(--accent);
+    text-shadow: 0 0 18px var(--accent-glow);
+  }
+
+  .pip-window[data-skin="karaoke"] .lyric-stage-wrap { align-items: flex-start; text-align: left; }
+  .k-char {
+    display: inline-block;
+    background-image: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      #ffffff var(--p, 0%),
+      rgba(255, 255, 255, 0.34) var(--p, 0%)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .settings-drawer {
+    position: absolute;
+    inset: 0;
+    background: var(--drawer-bg);
+    padding: 38px 18px 14px;
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    overflow-y: auto;
+    z-index: 15;
+    font-size: 12px;
+  }
+  .pip-window.drawer-open .settings-drawer { display: flex; }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+  .setting-row:last-child { border-bottom: none; padding-bottom: 0; }
+  .setting-label { color: var(--text-sub); font-weight: 600; white-space: nowrap; }
+  .setting-controls { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+  .chip {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid transparent;
+    color: var(--text-main);
+    padding: 3px 9px;
+    border-radius: 6px;
+    font-size: 11px;
+    cursor: pointer;
+  }
+  .chip.active {
+    border-color: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+  }
+
+  .search-input {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: var(--text-main);
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 11px;
+    width: 150px;
+    outline: none;
+  }
+
+  .status-corner {
+    position: absolute;
+    bottom: 5px;
+    right: 12px;
+    font-size: 10px;
+    color: var(--text-muted);
+    pointer-events: none;
+    z-index: 6;
+  }
+</style>
+</head>
+<body>
+
+<div class="guide">
+  <h2>qqmp3-floating-lyrics · 交互预览 Demo v4</h2>
+  <p>左侧封面右半侧显示范围已拉宽并叠加柔和渐入过渡，无额外遮挡；拖动右下角体验单行/三行/多行自适应与动态行距。</p>
+</div>
+
+<div class="pip-window" id="pipWin" data-skin="lyricify">
+  <div class="left-cover-bg" id="coverBg">
+    <img src="https://img4.kuwo.cn/star/albumcover/500/64/80/143067840.webp" alt="Album Cover" />
+  </div>
+
+  <div class="hover-bar">
+    <div class="pill-group">
+      <button class="icon-btn" id="btnPrev" title="上一首">⏮</button>
+      <button class="icon-btn active" id="btnPlay" title="播放 / 暂停">⏸ 暂停</button>
+      <button class="icon-btn" id="btnNext" title="下一首">⏭</button>
+      <button class="icon-btn" id="btnMode" title="切换播放模式">🔁 顺序</button>
+    </div>
+    <div class="pill-group">
+      <button class="icon-btn" id="btnSettings">⚙️ 设置</button>
+    </div>
+  </div>
+
+  <div class="lyric-stage-wrap">
+    <div class="meta-line" id="metaLine">海阔天空 — Beyond · 偏移 +0.0s</div>
+    <div class="stage" id="stage"></div>
+  </div>
+
+  <div class="settings-drawer" id="drawer">
+    <div class="setting-row">
+      <span class="setting-label">1. 行距与字号</span>
+      <div class="setting-controls">
+        <button class="chip" data-gap="0.75">紧凑</button>
+        <button class="chip active" data-gap="1.0">标准(动态)</button>
+        <button class="chip" data-gap="1.45">宽松</button>
+        <button class="chip" id="fontDec">A-</button>
+        <button class="chip" id="fontInc">A+</button>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <span class="setting-label">2. 手动搜词</span>
+      <div class="setting-controls">
+        <input class="search-input" id="searchInput" value="海阔天空 Beyond" placeholder="输入歌名/歌手..." />
+        <button class="chip active" id="btnDoSearch">搜索并应用</button>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <span class="setting-label">3. 风格与配色</span>
+      <div class="setting-controls">
+        <button class="chip" data-skin="clean">克制面板</button>
+        <button class="chip active" data-skin="lyricify">Lyricify风</button>
+        <button class="chip" data-skin="karaoke">卡拉OK条</button>
+        <button class="chip active" data-theme="cyber">深海青</button>
+        <button class="chip" data-theme="gold">暖金胶</button>
+        <button class="chip" data-theme="light">极简白</button>
+        <button class="chip active" id="btnAnimToggle">动画: 柔和</button>
+      </div>
+    </div>
+
+    <div class="setting-row">
+      <span class="setting-label">4. 时间轴偏移</span>
+      <div class="setting-controls">
+        <button class="chip" id="offsetSub">-0.2s</button>
+        <span id="offsetVal" style="min-width:46px;text-align:center;">+0.0s</span>
+        <button class="chip" id="offsetAdd">+0.2s</button>
+        <button class="chip" id="offsetReset">归零</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="status-corner" id="statusCorner">640×176 · 三行</div>
+</div>
+
+<script>
+  const sampleTracks = [
+    {
+      title: "海阔天空",
+      artist: "Beyond",
+      cover: "https://img4.kuwo.cn/star/albumcover/500/64/80/143067840.webp",
+      lines: [
+        "今天我 寒夜里看雪飘过",
+        "怀着冷却了的心窝漂远方",
+        "风雨里追赶 雾里分不清影踪",
+        "天空海阔你与我 可会变（谁没在变）",
+        "多少次 迎着冷眼与嘲笑",
+        "从未有放弃过心中的理想",
+        "原谅我这一生不羁放纵爱自由",
+        "也会怕有一天会跌倒",
+        "背弃了理想 谁人都可以",
+        "哪会怕有一天只你共我"
+      ]
+    },
+    {
+      title: "青花",
+      artist: "周传雄",
+      cover: "https://img4.kuwo.cn/star/albumcover/500/64/80/143067840.webp",
+      lines: [
+        "三月走过 柳絮散落 恋人们匆匆",
+        "我的心事 像深秋的云朵",
+        "紧紧握着 青花信物 信守着承诺",
+        "离别总在 失意中度过",
+        "记忆油画 褪色泛黄 谁在玻璃窗",
+        "轻轻叹息 叹息着过往"
+      ]
+    }
+  ];
+
+  const themes = {
+    cyber: {
+      bg: "radial-gradient(circle at 20% 0%, #1c2538 0%, #0e131d 100%)",
+      accent: "#56f0ff",
+      soft: "rgba(86, 240, 255, 0.16)",
+      glow: "rgba(86, 240, 255, 0.28)",
+      main: "#f8fafc",
+      sub: "rgba(248, 250, 252, 0.44)",
+      muted: "rgba(248, 250, 252, 0.22)",
+      drawer: "rgba(14, 19, 29, 0.92)",
+      pill: "rgba(15, 20, 31, 0.58)",
+      coverOpacity: "0.34"
+    },
+    gold: {
+      bg: "radial-gradient(circle at 20% 0%, #2d2218 0%, #130f0b 100%)",
+      accent: "#ffd166",
+      soft: "rgba(255, 209, 102, 0.18)",
+      glow: "rgba(255, 209, 102, 0.3)",
+      main: "#fffbeb",
+      sub: "rgba(255, 251, 235, 0.45)",
+      muted: "rgba(255, 251, 235, 0.22)",
+      drawer: "rgba(20, 15, 11, 0.92)",
+      pill: "rgba(20, 15, 11, 0.6)",
+      coverOpacity: "0.34"
+    },
+    light: {
+      bg: "linear-gradient(135deg, #ffffff 0%, #eef2f6 100%)",
+      accent: "#0284c7",
+      soft: "rgba(2, 132, 199, 0.12)",
+      glow: "rgba(2, 132, 199, 0.16)",
+      main: "#0f172a",
+      sub: "rgba(15, 23, 42, 0.48)",
+      muted: "rgba(15, 23, 42, 0.24)",
+      drawer: "rgba(255, 255, 255, 0.94)",
+      pill: "rgba(255, 255, 255, 0.72)",
+      coverOpacity: "0.24"
+    }
+  };
+
+  let trackIdx = 0;
+  let lineIdx = 6;
+  let playing = true;
+  let playModes = ["🔁 顺序", "🔀 随机", "🔂 单曲"];
+  let modeIdx = 0;
+  let gapScale = 1.0;
+  let fontSize = 23;
+  let smoothAnim = true;
+  let offsetSec = 0;
+  let wordPct = 0;
+
+  const pipWin = document.getElementById("pipWin");
+  const stage = document.getElementById("stage");
+  const metaLine = document.getElementById("metaLine");
+  const statusCorner = document.getElementById("statusCorner");
+  const coverBg = document.getElementById("coverBg");
+
+  function computeLayout(width, height) {
+    const dynamicBase = Math.max(6, Math.min(20, Math.round((height - 70) * 0.09)));
+    const finalGap = Math.round(dynamicBase * gapScale);
+    document.documentElement.style.setProperty("--row-gap", finalGap + "px");
+
+    const dynamicCoverW = Math.max(190, Math.min(310, Math.round(width * 0.38)));
+    document.documentElement.style.setProperty("--cover-width", dynamicCoverW + "px");
+
+    if (height < 92) return { mode: "single", label: "单行紧凑", radius: 0 };
+    if (height < 210) return { mode: "triple", label: "三行", radius: 1 };
+    return { mode: "multi", label: "多行滚动", radius: 3 };
+  }
+
+  function render(forceEnter = false) {
+    const h = pipWin.clientHeight;
+    const w = pipWin.clientWidth;
+    const layout = computeLayout(w, h);
+    const track = sampleTracks[trackIdx];
+    const skin = pipWin.getAttribute("data-skin");
+
+    pipWin.classList.toggle("compact-single", layout.mode === "single");
+    statusCorner.textContent = `${w}×${h} · ${layout.label}`;
+    metaLine.textContent = `${track.title} — ${track.artist} · 偏移 ${offsetSec >= 0 ? "+" : ""}${offsetSec.toFixed(1)}s`;
+    coverBg.querySelector("img").src = track.cover;
+
+    const nodes = [];
+    for (let d = -layout.radius; d <= layout.radius; d++) {
+      const idx = lineIdx + d;
+      if (idx < 0 || idx >= track.lines.length) continue;
+      const text = track.lines[idx];
+      const animClass = smoothAnim ? "" : "no-anim";
+
+      if (d === 0) {
+        if (skin === "karaoke") {
+          const chars = Array.from(text);
+          const html = chars.map((ch, i) => {
+            const s = (i / chars.length) * 100;
+            const e = ((i + 1) / chars.length) * 100;
+            const p = wordPct >= e ? 100 : wordPct <= s ? 0 : ((wordPct - s) / (e - s)) * 100;
+            return `<span class="k-char" style="--p:${p.toFixed(1)}%">${ch === " " ? "&nbsp;" : ch}</span>`;
+          }).join("");
+          nodes.push(`<div class="row current ${animClass}" id="curRow">${html}</div>`);
+        } else {
+          nodes.push(`<div class="row current ${animClass} ${forceEnter && smoothAnim ? "enter-anim" : ""}" id="curRow">${text}</div>`);
+        }
+      } else {
+        const cls = Math.abs(d) > 1 ? "far" : "sub";
+        nodes.push(`<div class="row ${cls} ${animClass}">${text}</div>`);
+      }
+    }
+
+    stage.innerHTML = nodes.join("");
+    if (forceEnter && smoothAnim) {
+      requestAnimationFrame(() => {
+        const cur = document.getElementById("curRow");
+        if (cur) cur.classList.remove("enter-anim");
+      });
+    }
+  }
+
+  setInterval(() => {
+    if (!playing) return;
+    wordPct += 2.4;
+    if (wordPct > 105) {
+      wordPct = 0;
+      const track = sampleTracks[trackIdx];
+      lineIdx = (lineIdx + 1) % track.lines.length;
+      render(true);
+      return;
+    }
+    if (pipWin.getAttribute("data-skin") === "karaoke") {
+      render(false);
+    }
+  }, 65);
+
+  new ResizeObserver(() => render(false)).observe(pipWin);
+
+  document.getElementById("btnPlay").onclick = (e) => {
+    playing = !playing;
+    e.target.textContent = playing ? "⏸ 暂停" : "▶ 播放";
+    e.target.classList.toggle("active", playing);
+  };
+  document.getElementById("btnPrev").onclick = () => {
+    trackIdx = (trackIdx - 1 + sampleTracks.length) % sampleTracks.length;
+    lineIdx = 0; wordPct = 0; render(true);
+  };
+  document.getElementById("btnNext").onclick = () => {
+    trackIdx = (trackIdx + 1) % sampleTracks.length;
+    lineIdx = 0; wordPct = 0; render(true);
+  };
+  document.getElementById("btnMode").onclick = (e) => {
+    modeIdx = (modeIdx + 1) % playModes.length;
+    e.target.textContent = playModes[modeIdx];
+  };
+
+  document.getElementById("btnSettings").onclick = (e) => {
+    const open = pipWin.classList.toggle("drawer-open");
+    e.target.classList.toggle("active", open);
+    e.target.textContent = open ? "✕ 关闭" : "⚙️ 设置";
+  };
+
+  document.querySelectorAll("[data-gap]").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll("[data-gap]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      gapScale = parseFloat(btn.dataset.gap);
+      render(false);
+    };
+  });
+  document.getElementById("fontInc").onclick = () => {
+    fontSize = Math.min(fontSize + 2, 34);
+    document.documentElement.style.setProperty("--font-size", fontSize + "px");
+    render(false);
+  };
+  document.getElementById("fontDec").onclick = () => {
+    fontSize = Math.max(fontSize - 2, 16);
+    document.documentElement.style.setProperty("--font-size", fontSize + "px");
+    render(false);
+  };
+
+  document.getElementById("btnDoSearch").onclick = () => {
+    const q = document.getElementById("searchInput").value.trim();
+    if (!q) return;
+    trackIdx = (trackIdx + 1) % sampleTracks.length;
+    lineIdx = 0;
+    wordPct = 0;
+    pipWin.classList.remove("drawer-open");
+    document.getElementById("btnSettings").textContent = "⚙️ 设置";
+    document.getElementById("btnSettings").classList.remove("active");
+    render(true);
+  };
+
+  document.querySelectorAll("[data-skin]").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll("[data-skin]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      pipWin.setAttribute("data-skin", btn.dataset.skin);
+      render(true);
+    };
+  });
+  document.querySelectorAll("[data-theme]").forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll("[data-theme]").forEach(b => b.classList.remove("active"));
+      btn.classList.add("active");
+      const t = themes[btn.dataset.theme];
+      document.documentElement.style.setProperty("--bg-surface", t.bg);
+      document.documentElement.style.setProperty("--accent", t.accent);
+      document.documentElement.style.setProperty("--accent-soft", t.soft);
+      document.documentElement.style.setProperty("--accent-glow", t.glow);
+      document.documentElement.style.setProperty("--text-main", t.main);
+      document.documentElement.style.setProperty("--text-sub", t.sub);
+      document.documentElement.style.setProperty("--text-muted", t.muted);
+      document.documentElement.style.setProperty("--drawer-bg", t.drawer);
+      document.documentElement.style.setProperty("--pill-bg", t.pill);
+      document.documentElement.style.setProperty("--cover-opacity", t.coverOpacity);
+    };
+  });
+  document.getElementById("btnAnimToggle").onclick = (e) => {
+    smoothAnim = !smoothAnim;
+    e.target.textContent = `动画: ${smoothAnim ? "柔和" : "无"}`;
+    e.target.classList.toggle("active", smoothAnim);
+  };
+
+  const updateOffset = () => {
+    document.getElementById("offsetVal").textContent = `${offsetSec >= 0 ? "+" : ""}${offsetSec.toFixed(1)}s`;
+    render(false);
+  };
+  document.getElementById("offsetSub").onclick = () => { offsetSec = Math.max(-5, +(offsetSec - 0.2).toFixed(1)); updateOffset(); };
+  document.getElementById("offsetAdd").onclick = () => { offsetSec = Math.min(5, +(offsetSec + 0.2).toFixed(1)); updateOffset(); };
+  document.getElementById("offsetReset").onclick = () => { offsetSec = 0; updateOffset(); };
+
+  render(false);
+</script>
+</body>
+</html>

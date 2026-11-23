@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>qqmp3-floating-lyrics 交互式概念 Demo (v0.2 ~ v0.3)</title>
+<style>
+  :root {
+    --bg: radial-gradient(circle at top, #1b2438 0%, #0f141f 100%);
+    --accent: #4ef2ff;
+    --accent-glow: rgba(78, 242, 255, 0.32);
+    --text-sub: rgba(255, 255, 255, 0.45);
+    --font-size: 24px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    min-height: 100vh;
+    background: #eef2f7;
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    color: #1e293b;
+  }
+
+  .panel-info {
+    max-width: 640px;
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  .panel-info h2 { font-size: 18px; margin-bottom: 6px; }
+  .panel-info p { font-size: 13px; color: #64748b; }
+
+  /* 模拟可拖拽缩放的 PiP 窗口 */
+  .pip-simulator {
+    position: relative;
+    width: 600px;
+    height: 135px;
+    min-width: 320px;
+    min-height: 56px;
+    max-width: 90vw;
+    max-height: 380px;
+    resize: both;
+    overflow: hidden;
+    border-radius: 12px;
+    background: var(--bg);
+    color: #fff;
+    box-shadow: 0 18px 40px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255,255,255,0.14);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 8px 20px;
+    user-select: none;
+  }
+
+  /* 悬停控制栏 */
+  .hover-toolbar {
+    position: absolute;
+    top: 6px;
+    right: 10px;
+    display: flex;
+    gap: 6px;
+    opacity: 0;
+    transition: opacity 0.2s ease;
+    background: rgba(15, 20, 31, 0.78);
+    backdrop-filter: blur(8px);
+    padding: 4px 8px;
+    border-radius: 999px;
+    border: 1px solid rgba(255,255,255,0.12);
+    z-index: 10;
+  }
+  .pip-simulator:hover .hover-toolbar { opacity: 1; }
+
+  .hover-toolbar button, .hover-toolbar select {
+    background: transparent;
+    border: none;
+    color: #e2e8f0;
+    font-size: 11px;
+    cursor: pointer;
+    padding: 2px 5px;
+    border-radius: 4px;
+  }
+  .hover-toolbar button:hover { background: rgba(255,255,255,0.14); }
+  .hover-toolbar select option { background: #161d2e; color: #fff; }
+
+  #header-bar {
+    font-size: 11px;
+    color: #8fa1c2;
+    margin-bottom: 4px;
+    white-space: nowrap;
+  }
+
+  .lyrics-stage {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    overflow: hidden;
+  }
+
+  .lyric-row {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    transition: all 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+
+  .lyric-row.sub {
+    font-size: calc(var(--font-size) * 0.54);
+    color: var(--text-sub);
+  }
+
+  .lyric-row.active {
+    font-size: var(--font-size);
+    font-weight: 800;
+    color: var(--accent);
+    text-shadow: 0 0 16px var(--accent-glow);
+  }
+
+  .k-char {
+    display: inline-block;
+    background-image: linear-gradient(
+      to right,
+      var(--accent) 0%,
+      #ffffff var(--p, 0%),
+      rgba(255, 255, 255, 0.32) var(--p, 0%)
+    );
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .size-badge {
+    position: absolute;
+    bottom: 5px;
+    left: 10px;
+    font-size: 10px;
+    color: rgba(255,255,255,0.32);
+  }
+</style>
+</head>
+<body>
+
+<div class="panel-info">
+  <h2>qqmp3-floating-lyrics 交互式概念 Demo</h2>
+  <p>拖动下方黑框<strong>右下角</strong>改变高度，体验 <strong>单行紧凑条 / 经典三行 / 多行面板</strong> 自动切换；鼠标移入窗口右上角可调节主题与字号。</p>
+</div>
+
+<div class="pip-simulator" id="pipBox">
+  <div class="hover-toolbar">
+    <select id="themeSelect" title="切换配色主题">
+      <option value="cyber">赛博青</option>
+      <option value="gold">暖金黑胶</option>
+      <option value="violet">极光紫</option>
+      <option value="light">高对比浅色</option>
+    </select>
+    <button id="fontDown" title="减小字号">A-</button>
+    <button id="fontUp" title="增大字号">A+</button>
+    <button id="modeToggle" title="切换真逐字/句间动态演示">模式: 真逐字</button>
+  </div>
+
+  <div id="header-bar">海阔天空 - Beyond [Demo 预览]</div>
+  <div class="lyrics-stage" id="stage"></div>
+  <div class="size-badge" id="sizeBadge">600 × 135 · 三行模式</div>
+</div>
+
+<script>
+  const lyrics = [
+    "今天我 寒夜里看雪飘过",
+    "怀着冷却了的心窝漂远方",
+    "风雨里追赶 雾里分不清影踪",
+    "天空海阔你与我 可会变（谁没在变）",
+    "多少次 迎着冷眼与嘲笑",
+    "从未有放弃过心中的理想",
+    "一刹那恍惚 若有所失的感觉",
+    "不知不觉已变淡 心里爱（谁明白我）",
+    "原谅我这一生不羁放纵爱自由",
+    "也会怕有一天会跌倒",
+    "背弃了理想 谁人都可以",
+    "哪会怕有一天只你共我"
+  ];
+
+  const themes = {
+    cyber: {
+      bg: "radial-gradient(circle at top, #1b2438 0%, #0f141f 100%)",
+      accent: "#4ef2ff",
+      glow: "rgba(78, 242, 255, 0.32)",
+      sub: "rgba(255, 255, 255, 0.45)"
+    },
+    gold: {
+      bg: "radial-gradient(circle at top, #2c2219 0%, #14100c 100%)",
+      accent: "#ffd166",
+      glow: "rgba(255, 209, 102, 0.32)",
+      sub: "rgba(255, 240, 215, 0.45)"
+    },
+    violet: {
+      bg: "radial-gradient(circle at top, #271b3d 0%, #110c1c 100%)",
+      accent: "#d896ff",
+      glow: "rgba(216, 150, 255, 0.35)",
+      sub: "rgba(240, 225, 255, 0.45)"
+    },
+    light: {
+      bg: "linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%)",
+      accent: "#0284c7",
+      glow: "rgba(2, 132, 199, 0.18)",
+      sub: "rgba(15, 23, 42, 0.48)"
+    }
+  };
+
+  let activeIdx = 8;
+  let wordMode = true;
+  let fontSize = 24;
+  let progress = 0;
+
+  const pipBox = document.getElementById("pipBox");
+  const stage = document.getElementById("stage");
+  const headerBar = document.getElementById("header-bar");
+  const sizeBadge = document.getElementById("sizeBadge");
+
+  function getLayoutMode(height) {
+    if (height < 85) return { mode: "single", label: "单行紧凑模式", radius: 0 };
+    if (height < 175) return { mode: "triple", label: "经典三行模式", radius: 1 };
+    return { mode: "multi", label: "多行滚动模式", radius: 3 };
+  }
+
+  function render() {
+    const h = pipBox.clientHeight;
+    const w = pipBox.clientWidth;
+    const layout = getLayoutMode(h);
+
+    headerBar.style.display = layout.mode === "single" ? "none" : "block";
+    sizeBadge.textContent = `${w} × ${h} · ${layout.label}`;
+
+    const rows = [];
+    for (let offset = -layout.radius; offset <= layout.radius; offset++) {
+      const idx = activeIdx + offset;
+      if (idx < 0 || idx >= lyrics.length) continue;
+      const text = lyrics[idx];
+      if (offset === 0) {
+        if (wordMode) {
+          const chars = Array.from(text);
+          const html = chars.map((ch, i) => {
+            const charStart = (i / chars.length) * 100;
+            const charEnd = ((i + 1) / chars.length) * 100;
+            let p = 0;
+            if (progress >= charEnd) p = 100;
+            else if (progress > charStart) p = ((progress - charStart) / (charEnd - charStart)) * 100;
+            return `<span class="k-char" style="--p:${p.toFixed(1)}%">${ch === " " ? "&nbsp;" : ch}</span>`;
+          }).join("");
+          rows.push(`<div class="lyric-row active">${html}</div>`);
+        } else {
+          rows.push(`<div class="lyric-row active">${text}</div>`);
+        }
+      } else {
+        rows.push(`<div class="lyric-row sub">${text}</div>`);
+      }
+    }
+    stage.innerHTML = rows.join("");
+  }
+
+  setInterval(() => {
+    progress += 2.2;
+    if (progress > 105) {
+      progress = 0;
+      activeIdx = (activeIdx + 1) % lyrics.length;
+    }
+    render();
+  }, 60);
+
+  new ResizeObserver(render).observe(pipBox);
+
+  document.getElementById("themeSelect").addEventListener("change", (e) => {
+    const t = themes[e.target.value];
+    document.documentElement.style.setProperty("--bg", t.bg);
+    document.documentElement.style.setProperty("--accent", t.accent);
+    document.documentElement.style.setProperty("--accent-glow", t.glow);
+    document.documentElement.style.setProperty("--text-sub", t.sub);
+    headerBar.style.color = e.target.value === "light" ? "#475569" : "#8fa1c2";
+  });
+
+  document.getElementById("fontUp").onclick = () => {
+    fontSize = Math.min(fontSize + 2, 36);
+    document.documentElement.style.setProperty("--font-size", fontSize + "px");
+    render();
+  };
+  document.getElementById("fontDown").onclick = () => {
+    fontSize = Math.max(fontSize - 2, 16);
+    document.documentElement.style.setProperty("--font-size", fontSize + "px");
+    render();
+  };
+  document.getElementById("modeToggle").onclick = (e) => {
+    wordMode = !wordMode;
+    e.target.textContent = `模式: ${wordMode ? "真逐字" : "句间动态"}`;
+    render();
+  };
+
+  render();
+</script>
+</body>
+</html>
