@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] - 2026-11-24
+
+### Changed
+- **Default Ambient Mode**: Switched the default background effect to `Disco` and ensured segmented control active states stay synchronized upon opening the settings drawer.
+- **Minimalist Music Mascot**: Refined the bottom-right status mascot to a cleaner minimalist silhouette SVG with three playback states (singing nod, interlude sway, paused).
+
+### Fixed
+- **Play/Pause Button Sync**: Added dual-source playback detection combining `#play-btn` icon/class inspection with `<audio>` paused state so the PiP play/pause icon stays accurate.
+- **Centered Track Header**: Switched the top bar layout to a symmetrical 3-column grid (`1fr auto 1fr`) so the `Title — Artist` pill stays strictly centered regardless of hover button widths.
+
+## [0.3.1] - 2026-11-24
+
+### Improved
+- **Top Bar Track Info**: Moved the current track title, artist, and lyric mode badge into the top bar center pill to save vertical lyric space.
+- **Segmented Settings UI**: Grouped mutually exclusive options (row density, skin, color theme, and background FX) into clear segmented pill controls with active highlights.
+- **Enhanced Line Scroll Animation**: Increased vertical slide-in distance and opacity fade transitions when switching lyric lines.
+
+## [0.3.0] - 2026-11-24
+
+### Added
+- **Adaptive Cover Color Extraction**: Extracts the dominant color from `#play-album-cover` once per track change (cached) to tint the PiP background with a soft frosted-glass look, falling back gracefully on cross-origin images.
+- **Left-Anchored Cover Scaling**: Anchored the album cover to `left center` and scaled its width dynamically with both window width and height while preserving a wide right-side gradient fade.
+- **Optional Ambient Backgrounds**: Added selectable background modes (`Off` / `Waveform` / `Disco`) that pause automatically when audio stops.
+- **Music Status Mascot**: Added a toggleable three-state music status indicator (Singing / Interlude / Paused).
+- **Play Mode Synchronization**: Syncs directly with the page's `#play-mode-btn` state (`Sequential` / `Repeat One` / `Shuffle`).
+
 ## [0.2.0] - 2026-11-23
 
 ### Added
@@ -21,4 +47,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dual-source lyric acquisition: prioritizes native `.song-lyrics` DOM timestamps (`data-time`) on `qqmp3.vip` and queries LRCLIB as a fallback/upgrade source.
 - True word-level (karaoke-style) lyric parser supporting `[mm:ss.xx]char(ms)`, `char<ms>`, and `<mm:ss.xx>char` formats.
 - Smooth `requestAnimationFrame`-driven line transitions (previous, current, and next line preview) when only line-level timestamps are available.
-- Automatic song change detection and dual playback clock sync (`<audio>` element with DOM `#current-time` fallback).
+- Automatic song change detection and dual playback clock sync (`<audio>` element with DOM `#current-time` fallback)[cite: 10].
