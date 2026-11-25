@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2026-11-25
+
+### Changed
+- **Circular Borderless Favorite Button**: Matched the standalone favorite button height (`28px`) with the Settings pill using a circular shape and removed the accented border highlight when favorited.
+- **Karaoke-Style Scrolling Header & Next Track Preview**: Added smooth marquee scrolling to the top `Title — Artist` header and appended the upcoming track (`下一首：...`) when playing in sequential or repeat-one mode (hidden in shuffle mode).
+
+## [0.3.4] - 2026-11-25
+
+### Changed
+- **Standalone Favorite Button**: Moved the favorite toggle out of the left playback control pill into a standalone button positioned right next to the Settings button.
+- **Synced Favorite Icon & Color**: Synchronizes the icon class (`far`/`fas fa-heart`) and computed color from the page's `.favorite-btn` element instead of using a hardcoded pink tint.
+
+## [0.3.3] - 2026-11-24
+
+### Added
+- **Distinct Visual Skins**: Differentiated Clean Panel (left-aligned, subtle weight, no glow), Lyricify Stage (centered, accent glow), and Karaoke Bar (left-aligned with accent indicator bar and sweep highlight).
+- **Favorite Sync Toggle**: Synced favorite/unfavorite status with `#song-list-body tr.active .favorite-btn`.
+
 ## [0.3.2] - 2026-11-24
 
 ### Changed
@@ -47,4 +65,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Dual-source lyric acquisition: prioritizes native `.song-lyrics` DOM timestamps (`data-time`) on `qqmp3.vip` and queries LRCLIB as a fallback/upgrade source.
 - True word-level (karaoke-style) lyric parser supporting `[mm:ss.xx]char(ms)`, `char<ms>`, and `<mm:ss.xx>char` formats.
 - Smooth `requestAnimationFrame`-driven line transitions (previous, current, and next line preview) when only line-level timestamps are available.
-- Automatic song change detection and dual playback clock sync (`<audio>` element with DOM `#current-time` fallback)[cite: 10].
+- Automatic song change detection and dual playback clock sync (`<audio>` element with DOM `#current-time` fallback).

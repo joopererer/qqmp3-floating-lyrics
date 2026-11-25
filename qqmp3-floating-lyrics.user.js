@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         QQMP3 置顶悬浮歌词 (v0.3.2 播控状态同步 + 绝对居中歌名 + 默认Disco)
+// @name         QQMP3 置顶悬浮歌词 (v0.3.5 等高圆形收藏按钮 + 顶部滚动歌名与下一首预告)
 // @namespace    http://tampermonkey.net/
-// @version      0.3.2
-// @description  修复播放暂停状态同步、顶部歌名绝对居中、默认开启Disco氛围与设置项高亮同步
+// @version      0.3.5
+// @description  优化独立收藏按钮为等高正圆无描边样式，顶部标题栏支持卡拉OK式水平滚动并预告下一首曲目（顺序/单曲循环模式）
 // @match        *://*.qqmp3.vip/*
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setValue
@@ -14,14 +14,14 @@
 (function () {
     'use strict';
 
-    const STORAGE_KEY = 'qqmp3_floating_lyrics_cfg_v032';
+    const STORAGE_KEY = 'qqmp3_floating_lyrics_cfg_v035';
     const defaultConfig = {
         gapScale: 1.0,
         fontSize: 23,
         skin: 'lyricify',    // 'clean' | 'lyricify' | 'karaoke'
         theme: 'cyber',      // 'cyber' | 'gold' | 'light'
         adaptiveColor: true,
-        fxMode: 'disco',     // 'off' | 'wave' | 'disco'（默认 Disco）
+        fxMode: 'disco',     // 'off' | 'wave' | 'disco'
         showMascot: true,
         smoothAnim: true,
         offsetSec: 0
@@ -89,6 +89,7 @@
     let parsedLyrics = [];
     let currentLineIndex = -1;
     let lyricMode = 'none';
+    let lastHeaderSignature = '';
 
     let cachedCoverUrl = '';
     let extractedRgb = null;
@@ -258,22 +259,91 @@
         });
     }
 
-    function getPlayModeInfo() {
-        const btn = document.getElementById('play-mode-btn');
-        if (!btn) return { icon: '🔁', label: '顺序' };
-        const title = (btn.getAttribute('title') || btn.textContent || '').trim();
-        const iconHtml = btn.innerHTML || '';
-
-        if (title.includes('单曲') || iconHtml.includes('fa-redo') || iconHtml.includes('1')) {
-            return { icon: '🔂', label: '单曲' };
+    function findActiveRow(title = '', artist = '') {
+        const activeRow = document.querySelector('#song-list-body tr.active');
+        if (activeRow) return activeRow;
+        if (title) {
+            const rows = [...document.querySelectorAll('#song-list-body tr')];
+            for (const tr of rows) {
+                const cells = tr.querySelectorAll('td');
+                const rowTitle = cells[1]?.textContent?.trim() || '';
+                const rowArtist = cells[2]?.textContent?.trim() || '';
+                if (rowTitle === title && (!artist || rowArtist.includes(artist) || artist.includes(rowArtist))) {
+                    return tr;
+                }
+            }
         }
-        if (title.includes('随机') || iconHtml.includes('fa-random') || iconHtml.includes('shuffle')) {
-            return { icon: '🔀', label: '随机' };
-        }
-        return { icon: '🔁', label: '顺序' };
+        return null;
     }
 
-    // 同步读取真实播放/暂停状态（结合 #play-btn 图标/属性 与 <audio>）
+    function findActiveFavoriteBtn(title = '', artist = '') {
+        const row = findActiveRow(title, artist);
+        return row ? row.querySelector('.favorite-btn') : null;
+    }
+
+    function getFavoriteState(title = '', artist = '') {
+        const btn = findActiveFavoriteBtn(title, artist);
+        if (!btn) return { available: false, favorited: false, iconClass: '', computedColor: '' };
+
+        const icon = btn.querySelector('i');
+        const iconClass = icon?.className || '';
+        const btnCls = btn.className || '';
+        const favorited = iconClass.includes('fas') || btnCls.includes('active') || btnCls.includes('favorited');
+
+        let computedColor = '';
+        try {
+            const targetEl = icon || btn;
+            const col = getComputedStyle(targetEl).color || '';
+            if (col && col !== 'rgba(0, 0, 0, 0)' && col !== 'transparent') {
+                computedColor = col;
+            }
+        } catch (e) {}
+
+        return { available: true, favorited, iconClass, computedColor };
+    }
+
+    function getPlayModeInfo() {
+        const btn = document.getElementById('play-mode-btn');
+        if (!btn) return { mode: 'seq', icon: '🔁', title: '顺序播放' };
+        const rawTitle = (btn.getAttribute('title') || btn.textContent || '').trim();
+        const iconHtml = btn.innerHTML || '';
+
+        if (rawTitle.includes('单曲') || iconHtml.includes('fa-redo') || iconHtml.includes('1')) {
+            return { mode: 'one', icon: '🔂', title: '单曲循环' };
+        }
+        if (rawTitle.includes('随机') || iconHtml.includes('fa-random') || iconHtml.includes('shuffle')) {
+            return { mode: 'rnd', icon: '🔀', title: '随机播放' };
+        }
+        return { mode: 'seq', icon: '🔁', title: '顺序播放' };
+    }
+
+    function getNextTrackHint(title, artist, playMode) {
+        if (!title || !playMode) return '';
+        if (playMode.mode === 'rnd') return '';
+        if (playMode.mode === 'one') {
+            return `下一首：${title}${artist ? ' - ' + artist : ''}（单曲循环）`;
+        }
+
+        const rows = [...document.querySelectorAll('#song-list-body tr')];
+        if (!rows.length) return '';
+
+        const activeRow = findActiveRow(title, artist);
+        if (!activeRow) return '';
+
+        const curIdx = rows.indexOf(activeRow);
+        if (curIdx === -1) return '';
+
+        const nextRow = rows[(curIdx + 1) % rows.length];
+        if (!nextRow) return '';
+
+        const cells = nextRow.querySelectorAll('td');
+        const nextTitle = cells[1]?.textContent?.trim() || '';
+        const nextArtist = cells[2]?.textContent?.trim() || '';
+        if (!nextTitle) return '';
+
+        return `下一首：${nextTitle}${nextArtist ? ' - ' + nextArtist : ''}`;
+    }
+
     function getIsPlaying(audio) {
         const playBtn = document.getElementById('play-btn');
         if (playBtn) {
@@ -323,8 +393,10 @@
 
         const isPlaying = getIsPlaying(audio);
         const playMode = getPlayModeInfo();
+        const favorite = getFavoriteState(title, artist);
+        const nextHint = getNextTrackHint(title, artist, playMode);
 
-        return { title, artist, cover, currentTime, duration, isPlaying, playMode };
+        return { title, artist, cover, currentTime, duration, isPlaying, playMode, favorite, nextHint };
     }
 
     function extractCoverColorOnce(url, onDone) {
@@ -504,6 +576,37 @@
         ctx.globalAlpha = 1;
     }
 
+    function updateHeaderMarquee(doc, mainText, nextHint, force = false) {
+        const box = doc.getElementById('pipMetaBox');
+        const track = doc.getElementById('pipMetaTrack');
+        if (!box || !track) return;
+
+        const sig = `${mainText}||${nextHint}`;
+        if (!force && sig === lastHeaderSignature) return;
+        lastHeaderSignature = sig;
+
+        const nextHtml = nextHint
+            ? `<span class="meta-sep">✦</span><span class="meta-next">${nextHint}</span>`
+            : '';
+        const unitHtml = `<span class="meta-unit"><span class="meta-main">${mainText}</span>${nextHtml}</span>`;
+
+        track.classList.remove('scrolling');
+        track.innerHTML = unitHtml;
+
+        requestAnimationFrame(() => {
+            const boxW = box.clientWidth || 260;
+            const unitEl = track.querySelector('.meta-unit');
+            const unitW = unitEl ? unitEl.scrollWidth : 0;
+
+            if (nextHint || unitW > boxW - 8) {
+                track.innerHTML = unitHtml + unitHtml;
+                const durationSec = Math.max(10, Math.round((unitW + 48) / 28));
+                track.style.setProperty('--marquee-dur', `${durationSec}s`);
+                track.classList.add('scrolling');
+            }
+        });
+    }
+
     async function openFloatingLyrics() {
         if (!('documentPictureInPicture' in window)) {
             alert('当前浏览器不支持 Document Picture-in-Picture，请使用最新版 Chrome 或 Edge！');
@@ -514,12 +617,22 @@
             return;
         }
 
+        lastHeaderSignature = '';
         pipWindow = await window.documentPictureInPicture.requestWindow({
             width: 640,
             height: 176
         });
 
         const doc = pipWindow.document;
+
+        const faLink = document.querySelector('link[href*="font-awesome"], link[href*="all.min.css"]');
+        if (faLink && faLink.href) {
+            const linkEl = doc.createElement('link');
+            linkEl.rel = 'stylesheet';
+            linkEl.href = faLink.href;
+            doc.head.appendChild(linkEl);
+        }
+
         doc.body.innerHTML = `
             <style>
                 :root {
@@ -553,7 +666,7 @@
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
-                    padding: 36px 24px 14px;
+                    padding: 38px 24px 14px;
                     overflow: hidden;
                     transition: background 0.45s ease;
                 }
@@ -638,14 +751,13 @@
                     100% { transform: rotate(360deg) scale(1); }
                 }
 
-                /* 三栏对称网格：保证中间歌名标题栏严格水平居中 */
                 .top-bar {
                     position: absolute;
                     top: 8px;
                     left: 12px;
                     right: 12px;
                     display: grid;
-                    grid-template-columns: 1fr auto 1fr;
+                    grid-template-columns: minmax(105px, 1fr) minmax(140px, 300px) minmax(105px, 1fr);
                     align-items: center;
                     gap: 8px;
                     z-index: 20;
@@ -659,11 +771,14 @@
                 }
                 .center-slot {
                     justify-self: center;
-                    max-width: 100%;
+                    width: 100%;
                     overflow: hidden;
                 }
                 .right-slot {
                     justify-self: end;
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
                     opacity: 0;
                     transform: translateY(-3px);
                     transition: opacity 0.2s ease, transform 0.2s ease;
@@ -678,41 +793,103 @@
                     pointer-events: auto;
                 }
 
-                .title-pill {
+                .meta-marquee-box {
+                    width: 100%;
+                    overflow: hidden;
+                    white-space: nowrap;
                     font-size: 11.5px;
                     color: var(--text-sub);
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    padding: 2px 6px;
+                    padding: 2px 4px;
                     text-align: center;
-                    pointer-events: none;
+                    -webkit-mask-image: linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%);
+                    mask-image: linear-gradient(to right, transparent 0%, #000 8%, #000 92%, transparent 100%);
                     transition: opacity 0.2s ease;
                 }
-                .pip-wrap.compact-single .title-pill {
+                .pip-wrap.compact-single .meta-marquee-box {
                     opacity: 0;
                 }
+                .meta-track {
+                    display: inline-flex;
+                    align-items: center;
+                    white-space: nowrap;
+                }
+                .meta-track.scrolling {
+                    animation: headerMarquee var(--marquee-dur, 14s) linear infinite;
+                }
+                .meta-marquee-box:hover .meta-track.scrolling {
+                    animation-play-state: paused;
+                }
+                .meta-unit {
+                    display: inline-flex;
+                    align-items: center;
+                    padding-right: 44px;
+                }
+                .meta-track:not(.scrolling) .meta-unit {
+                    padding-right: 0;
+                }
+                .meta-sep {
+                    margin: 0 10px;
+                    color: var(--accent);
+                    opacity: 0.7;
+                    font-size: 10px;
+                }
+                .meta-next {
+                    color: var(--accent);
+                    opacity: 0.88;
+                }
+                @keyframes headerMarquee {
+                    0% { transform: translateX(0); }
+                    100% { transform: translateX(-50%); }
+                }
+
                 .pill-group {
                     flex-shrink: 0;
-                    display: flex;
+                    height: 28px;
+                    display: inline-flex;
                     align-items: center;
                     gap: 4px;
                     background: var(--pill-bg);
                     border: 1px solid var(--border-hairline);
                     border-radius: 999px;
-                    padding: 2px 8px;
+                    padding: 0 8px;
                 }
+
+                .standalone-fav {
+                    flex-shrink: 0;
+                    width: 28px;
+                    height: 28px;
+                    background: var(--pill-bg);
+                    border: 1px solid var(--border-hairline);
+                    border-radius: 50%;
+                    color: var(--text-main);
+                    font-size: 12px;
+                    cursor: pointer;
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    transition: background 0.15s ease, transform 0.15s ease;
+                }
+                .standalone-fav:hover:not(:disabled) {
+                    background: rgba(255, 255, 255, 0.14);
+                }
+                .standalone-fav:disabled {
+                    opacity: 0.35;
+                    cursor: not-allowed;
+                }
+
                 .icon-btn {
                     background: transparent;
                     border: none;
                     color: var(--text-main);
                     font-size: 12px;
-                    padding: 3px 7px;
+                    height: 22px;
+                    padding: 0 7px;
                     border-radius: 999px;
                     cursor: pointer;
                     display: inline-flex;
                     align-items: center;
-                    gap: 3px;
+                    justify-content: center;
+                    white-space: nowrap;
                 }
                 .icon-btn:hover { background: rgba(255, 255, 255, 0.14); }
                 .icon-btn.active { color: var(--accent); background: var(--accent-soft); }
@@ -721,13 +898,11 @@
                     position: relative;
                     z-index: 5;
                     width: 100%;
-                    padding-left: 36px;
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
                     overflow: hidden;
                 }
-                .pip-wrap.compact-single .lyric-stage-wrap { padding-left: 56px; }
 
                 .stage {
                     display: flex;
@@ -760,16 +935,44 @@
                     transform: translateY(12px);
                 }
 
-                .pip-wrap[data-skin="clean"] .lyric-stage-wrap { align-items: flex-start; text-align: left; }
-                .pip-wrap[data-skin="clean"] .row.current { color: var(--text-main); }
+                .pip-wrap[data-skin="clean"] .lyric-stage-wrap {
+                    align-items: flex-start;
+                    text-align: left;
+                    padding-left: 16px;
+                }
+                .pip-wrap[data-skin="clean"] .row.current {
+                    color: var(--text-main);
+                    font-weight: 600;
+                    text-shadow: none;
+                }
+                .pip-wrap[data-skin="clean"] .row.sub {
+                    color: var(--text-muted);
+                }
 
-                .pip-wrap[data-skin="lyricify"] .lyric-stage-wrap { align-items: center; text-align: center; padding-left: 0; }
+                .pip-wrap[data-skin="lyricify"] .lyric-stage-wrap {
+                    align-items: center;
+                    text-align: center;
+                    padding-left: 0;
+                }
                 .pip-wrap[data-skin="lyricify"] .row.current {
                     color: var(--accent);
+                    font-weight: 800;
                     text-shadow: 0 0 18px var(--accent-glow);
                 }
 
-                .pip-wrap[data-skin="karaoke"] .lyric-stage-wrap { align-items: flex-start; text-align: left; }
+                .pip-wrap[data-skin="karaoke"] .lyric-stage-wrap {
+                    align-items: flex-start;
+                    text-align: left;
+                    padding-left: 16px;
+                }
+                .pip-wrap[data-skin="karaoke"] .row.current {
+                    font-weight: 900;
+                    letter-spacing: 0.4px;
+                    padding: 1px 8px 2px 4px;
+                    border-left: 3px solid var(--accent);
+                    background: linear-gradient(90deg, var(--accent-soft) 0%, transparent 92%);
+                    border-radius: 0 6px 6px 0;
+                }
                 .k-char {
                     display: inline-block;
                     background-image: linear-gradient(
@@ -783,7 +986,6 @@
                     color: transparent;
                 }
 
-                /* 精简灵动小人轮廓徽章 */
                 .mascot-badge {
                     position: absolute;
                     right: 16px;
@@ -916,13 +1118,18 @@
                             <button class="icon-btn" id="pipPrev" title="上一首">⏮</button>
                             <button class="icon-btn" id="pipPlay" title="播放/暂停">▶</button>
                             <button class="icon-btn" id="pipNext" title="下一首">⏭</button>
-                            <button class="icon-btn" id="pipMode" title="切换播放模式">🔁 顺序</button>
+                            <button class="icon-btn" id="pipMode" title="切换播放模式">🔁</button>
                         </div>
                     </div>
                     <div class="center-slot">
-                        <div class="title-pill" id="pipMeta">等待播放...</div>
+                        <div class="meta-marquee-box" id="pipMetaBox">
+                            <div class="meta-track" id="pipMetaTrack">
+                                <span class="meta-unit"><span class="meta-main">等待播放...</span></span>
+                            </div>
+                        </div>
                     </div>
                     <div class="right-slot">
+                        <button class="standalone-fav" id="pipFav" title="收藏 / 取消收藏"><i class="far fa-heart"></i></button>
                         <div class="pill-group">
                             <button class="icon-btn" id="pipSettingsBtn">⚙️ 设置</button>
                         </div>
@@ -933,7 +1140,6 @@
                     <div class="stage" id="pipStage"></div>
                 </div>
 
-                <!-- 极简灵动小人轮廓徽章 -->
                 <div class="mascot-badge" id="pipMascot" data-state="paused">
                     <svg class="mascot-svg" viewBox="0 0 24 24" fill="none">
                         <circle cx="12" cy="6.5" r="2.6" stroke="currentColor" stroke-width="1.9"/>
@@ -1012,6 +1218,11 @@
         doc.getElementById('pipPlay').onclick = () => document.getElementById('play-btn')?.click();
         doc.getElementById('pipNext').onclick = () => document.getElementById('next-btn')?.click();
         doc.getElementById('pipMode').onclick = () => document.getElementById('play-mode-btn')?.click();
+        doc.getElementById('pipFav').onclick = () => {
+            const { title, artist } = getPlaybackState();
+            const targetFav = findActiveFavoriteBtn(title, artist);
+            if (targetFav) targetFav.click();
+        };
 
         const wrap = doc.getElementById('pipWrap');
         const setBtn = doc.getElementById('pipSettingsBtn');
@@ -1116,6 +1327,7 @@
         pipWindow.addEventListener('resize', () => {
             computeWindowLayout(doc);
             currentLineIndex = -1;
+            lastHeaderSignature = '';
         });
     }
 
@@ -1159,14 +1371,14 @@
 
     function tick(now) {
         if (pipWindow && !pipWindow.closed && parsedLyrics.length > 0) {
-            const { title, artist, cover, currentTime, isPlaying, playMode } = getPlaybackState();
+            const { title, artist, cover, currentTime, isPlaying, playMode, favorite, nextHint } = getPlaybackState();
             const doc = pipWindow.document;
             const wrap = doc.getElementById('pipWrap');
-            const metaEl = doc.getElementById('pipMeta');
             const stageEl = doc.getElementById('pipStage');
             const coverImg = doc.getElementById('pipCoverImg');
             const playBtn = doc.getElementById('pipPlay');
             const modeBtn = doc.getElementById('pipMode');
+            const favBtn = doc.getElementById('pipFav');
             const mascotEl = doc.getElementById('pipMascot');
             const mascotText = doc.getElementById('pipMascotText');
 
@@ -1184,21 +1396,45 @@
                 playBtn.classList.toggle('active', isPlaying);
             }
             if (modeBtn && playMode) {
-                const targetText = `${playMode.icon} ${playMode.label}`;
-                if (modeBtn.textContent !== targetText) {
-                    modeBtn.textContent = targetText;
+                if (modeBtn.textContent !== playMode.icon) {
+                    modeBtn.textContent = playMode.icon;
+                }
+                modeBtn.title = `播放模式：${playMode.title}（点击切换）`;
+            }
+            if (favBtn && favorite) {
+                favBtn.disabled = !favorite.available;
+                favBtn.title = !favorite.available
+                    ? '列表中未定位到收藏按钮'
+                    : (favorite.favorited ? '已收藏（点击取消）' : '点击收藏');
+
+                const desiredIconClass = favorite.iconClass || (favorite.favorited ? 'fas fa-heart' : 'far fa-heart');
+                let iconEl = favBtn.querySelector('i');
+                if (!iconEl) {
+                    favBtn.innerHTML = `<i class="${desiredIconClass}"></i>`;
+                    iconEl = favBtn.querySelector('i');
+                } else if (iconEl.className !== desiredIconClass) {
+                    iconEl.className = desiredIconClass;
+                }
+
+                if (iconEl) {
+                    if (favorite.favorited) {
+                        iconEl.style.color = favorite.computedColor || 'var(--accent)';
+                    } else {
+                        iconEl.style.color = 'var(--text-main)';
+                    }
                 }
             }
 
             const effectiveTime = currentTime + cfg.offsetSec;
 
-            if (metaEl && title) {
+            if (title) {
                 const modeLabel =
                     lyricMode === 'word' ? '真逐字' :
                     lyricMode === 'line-dom' ? '网页原词' :
                     lyricMode === 'line-api' ? '在线歌词' : '检索中';
                 const offStr = cfg.offsetSec === 0 ? '' : ` · 偏移${cfg.offsetSec > 0 ? '+' : ''}${cfg.offsetSec.toFixed(1)}s`;
-                metaEl.textContent = `${title}${artist ? ' — ' + artist : ''} [${modeLabel}]${offStr}`;
+                const mainHeaderText = `${title}${artist ? ' — ' + artist : ''} [${modeLabel}]${offStr}`;
+                updateHeaderMarquee(doc, mainHeaderText, nextHint, false);
             }
 
             let idx = 0;
